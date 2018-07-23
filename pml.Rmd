@@ -1,0 +1,104 @@
+---
+title: "Weight Lifting Exercise Analysis"
+author: "khsarma"
+date: "July 23, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(caret)
+```
+
+### Synopsis
+In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. We are going to quantify how well they did exercise.
+
+### Import and Explore data set
+```{r}
+pmlTr <- read.csv("pml-training.csv", header = TRUE)
+pmlVal <- read.csv("pml-testing.csv", header = TRUE)
+
+dim(pmlTr) # 19622 observations of 160 features
+dim(pmlVal) # 20 observations
+```
+We are going to consider testing csv file as validation set. Let's create Training and Testing set out of training csv file.
+```{r}
+set.seed(2525)
+pmlInTrain <- createDataPartition(y = pmlTr$classe, p = 0.6, list = FALSE)
+pmlTrain <- pmlTr[pmlInTrain,]
+pmlTest <- pmlTr[-pmlInTrain,]
+```
+
+### Feature selection
+We are going to remove new-zero covariates and variables with higher number of NAs. Also, first 5 columns in the data set are not going to have any impact on the prodiction as there are user names, timestamps etc.
+```{r}
+# remove variables with nearly zero variance
+nzv <- nearZeroVar(pmlTrain)
+pmlTrain <- pmlTrain[, -nzv]
+pmlTest <- pmlTest[, -nzv]
+
+# remove variables that have high number of NAs
+pmlNA <- sapply(pmlTrain, function(x) mean(is.na(x))) > 0.90
+pmlTrain <- pmlTrain[, pmlNA == FALSE]
+pmlTest <- pmlTest[, pmlNA == FALSE]
+
+# remove first 5 columns
+pmlTrain <- pmlTrain[, -(1:5)]
+pmlTest <- pmlTest[, -(1:5)]
+```
+
+
+### Model Selection
+Let's use 2 popular bagging algorithms - Bagged CART and Random Forest. First, we'll set up control parameter with 'cv' method for cross validation. We'll use treebag and random forest methods to train and summarize our results.
+```{r}
+# Bagging algorithms
+tc <- trainControl(method = "cv", number = 3)
+# Bagged CART
+set.seed(7)
+modeltreebag <- train(classe~., data = pmlTrain, method = "treebag", metric = "Accuracy", trControl = tc)
+# Random Forest
+set.seed(7)
+modelrf <- train(classe~., data = pmlTrain, method = "rf", metric = "Accuracy", trControl = tc)
+# summarize results
+results <- resamples(list(treebag = modeltreebag, rf = modelrf))
+summary(results)
+```
+It can be observed that random forest gave an accuracy of 99.33% and better than treebag bagging method.
+```{r}
+dotplot(results)
+```
+
+
+### Prediction
+#### With Random Forest
+```{r}
+predictrf <- predict(modelrf, pmlTest)
+confusionMatrix(predictrf, pmlTest$classe)
+```
+Thus, accuracy is 99.7% and out of sample erroris 0.3%.
+
+#### Making Test set prediction
+Before making Test set prediction we have to re-fit the model on the complete Train set.
+```{r}
+# remove variables with nearly zero variance
+nzv <- nearZeroVar(pmlTr)
+pmlTraining <- pmlTr[, -nzv]
+pmlTesting <- pmlVal[, -nzv]
+
+# remove variables that have high number of NAs
+pmlNA <- sapply(pmlTraining, function(x) mean(is.na(x))) > 0.90
+pmlTraining <- pmlTraining[, pmlNA == FALSE]
+pmlTesting <- pmlTesting[, pmlNA == FALSE]
+
+# remove first 5 columns
+pmlTraining <- pmlTraining[, -(1:5)]
+pmlTesting <- pmlTesting[, -(1:5)]
+
+# train using complete training set
+fitControl <- trainControl(method="cv", number=3, verboseIter=F)
+refit <- train(classe ~ ., data=pmlTraining, method="rf", trControl=fitControl)
+
+# Predict using the actual test set
+predictTest <- predict(refit, newdata = pmlTesting)
+predictTest
+```
